@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
-	"runtime"
+	"os/signal"
 	"syscall"
 	"unsafe"
 )
@@ -28,21 +28,30 @@ func main() {
 		out *os.File
 	)
 
-	if runtime.GOOS == "openbsd" {
-		out, err = os.OpenFile("/dev/tty", os.O_RDWR, 0)
-		if err != nil {
-			fmt.Println(err)
+	out, err = os.OpenFile("/dev/tty", os.O_RDWR, 0)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	defer out.Close()
+
+	signalCh := make(chan os.Signal)
+	signal.Notify(signalCh, syscall.SIGWINCH)
+
+	for {
+		termw, termh := getTermSize(out.Fd())
+		if termw > 0 && termh > 0 {
+			fmt.Printf("termw: %d, termh: %d\n", termw, termh)
 			return
 		}
-	} else {
-		out, err = os.OpenFile("/dev/tty", os.O_WRONLY, 0)
-		if err != nil {
-			fmt.Println(err)
-			return
+
+		select {
+		case ch := <-signalCh:
+			if ch == syscall.SIGWINCH {
+				termw, termh := getTermSize(out.Fd())
+				fmt.Printf("termw: %d, termh: %d\n", termw, termh)
+				return
+			}
 		}
 	}
-
-	termw, termh := getTermSize(out.Fd())
-
-	fmt.Printf("termw: %d, termh: %d\n", termw, termh)
 }
